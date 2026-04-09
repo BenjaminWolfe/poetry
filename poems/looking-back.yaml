@@ -1,0 +1,61 @@
+title: "Looking Back"
+author: "Ursula K. Le Guin"
+
+lines:
+  - "Remember me before I was a heap of salt"
+  - "The laughing child who seldom did what she was told"
+  - "Or came when she was called"
+  - "The merry girl who became Lot's bride"
+  - "The happy woman who loved her wicked city"
+  - ""
+  - "Do not remember me with pity"
+  - "I saw you plodding on ahead into the desert of your pitiless faith"
+  - "Those springs are dry; that earth is dead"
+  - "So I looked back, not forward into death"
+  - "Forgiving rains dissolve me"
+  - "And I come still disobedient, still happy"
+  - "Home"
+
+connections:
+  - label: "remember / do not remember"
+    color: "#c084fc"
+    phrases:
+      - "Remember me"
+      - "Do not remember me"
+
+  - label: "child, girl, woman"
+    color: "#fb923c"
+    phrases:
+      - "The laughing child"
+      - "the merry girl"
+      - "the happy woman"
+
+  - label: "dead / death"
+    color: "#60a5fa"
+    phrases:
+      - "dead"
+      - "death"
+
+  - label: "pity / pitiless"
+    color: "#f472b6"
+    phrases:
+      - "pity"
+      - "*pitiless* faith"
+
+  - label: "pity / city"
+    color: "#f472b6"
+    phrases:
+      - "pity"
+      - "city"
+
+  - label: "disobedient — come what may"
+    color: "#34d399"
+    phrases:
+      - "seldom did what she was told"
+      - "Or came when she was called"
+      - "I come still disobedient, still happy"
+
+  - label: "she looked back"
+    color: "#facc15"
+    phrases:
+      - "I looked back"
