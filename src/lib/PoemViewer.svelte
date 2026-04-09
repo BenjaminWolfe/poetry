@@ -1,16 +1,18 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import type { Poem } from './types';
-  import { resolveSpans, segmentLine } from './matcher';
+  import { resolveSpans, tokenizeWords, renderLineSegments } from './matcher';
+  import type { Span, WordToken } from './matcher';
 
   export let poem: Poem;
 
-  // Index of the currently active connection (-1 = none highlighted)
-  let activeIndex = 0;
-  let paused = false;
+  const WORD_MS       = 280;  // ms per word at normal reading pace
+  const STANZA_MULT   = 4;    // stanza-break pause multiplier
+  const START_DELAY   = 700;  // ms before the reveal begins
 
-  // Pre-resolve all connections up front so errors surface immediately
+  // ── Config error handling ─────────────────────────────────────────────────
   let configError: string | null = null;
+
   const resolvedConnections = (() => {
     try {
       return poem.connections.map(conn => ({
@@ -23,42 +25,90 @@
     }
   })();
 
-  $: active = resolvedConnections[activeIndex] ?? null;
+  // ── Word tokens ───────────────────────────────────────────────────────────
+  const wordTokens: WordToken[] = tokenizeWords(poem.lines);
 
-  function advance() {
-    activeIndex = (activeIndex + 1) % resolvedConnections.length;
-    resetTimer();
-  }
+  // ── Trigger events: one per connection, fires at its first phrase ─────────
+  interface TriggerEvent { wordFlatIndex: number; connectionIndex: number; }
 
-  function retreat() {
-    activeIndex = (activeIndex - 1 + resolvedConnections.length) % resolvedConnections.length;
-    resetTimer();
-  }
+  const triggerEvents: TriggerEvent[] = resolvedConnections
+    .map((conn, connectionIndex) => {
+      if (!conn.spans.length) return null;
+      const firstSpan: Span = conn.spans[0];
+      const token = wordTokens.find(
+        t => t.lineIndex === firstSpan.lineIndex &&
+             t.start <= firstSpan.start &&
+             t.end > firstSpan.start
+      );
+      return token ? { wordFlatIndex: token.flatIndex, connectionIndex } : null;
+    })
+    .filter((e): e is TriggerEvent => e !== null)
+    .sort((a, b) => a.wordFlatIndex - b.wordFlatIndex);
 
-  function togglePause() {
-    paused = !paused;
-    if (!paused) resetTimer();
-  }
-
-  // Auto-advance timer
+  // ── Reading state ─────────────────────────────────────────────────────────
+  let cursorIndex          = -1;
+  let activeConnectionIndex: number | null = null;
+  let paused               = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
 
-  function resetTimer() {
-    if (timer) clearTimeout(timer);
-    if (paused) return;
-    const duration = (active?.duration ?? 4) * 1000;
-    timer = setTimeout(advance, duration);
+  $: active = activeConnectionIndex !== null
+    ? resolvedConnections[activeConnectionIndex]
+    : null;
+
+  function updateActiveConnection() {
+    const passed = triggerEvents.filter(e => e.wordFlatIndex <= cursorIndex);
+    const next   = passed.length ? passed[passed.length - 1].connectionIndex : null;
+    if (next !== activeConnectionIndex) activeConnectionIndex = next;
   }
 
-  // Start on mount
-  resetTimer();
+  function nextDelay(): number {
+    if (cursorIndex < 0 || cursorIndex >= wordTokens.length - 1) return WORD_MS;
+    const curr = wordTokens[cursorIndex];
+    const next = wordTokens[cursorIndex + 1];
+    return next.lineIndex - curr.lineIndex > 1 ? WORD_MS * STANZA_MULT : WORD_MS;
+  }
+
+  function scheduleNext() {
+    if (timer) clearTimeout(timer);
+    if (paused || cursorIndex >= wordTokens.length - 1) return;
+    timer = setTimeout(() => {
+      cursorIndex += 1;
+      updateActiveConnection();
+      scheduleNext();
+    }, nextDelay());
+  }
+
+  // ── Controls ──────────────────────────────────────────────────────────────
+  function togglePause() {
+    paused = !paused;
+    if (!paused) scheduleNext();
+    else if (timer) { clearTimeout(timer); timer = null; }
+  }
+
+  function skipToNext() {
+    const next = triggerEvents.find(e => e.wordFlatIndex > cursorIndex);
+    if (!next) return;
+    cursorIndex = next.wordFlatIndex;
+    updateActiveConnection();
+    if (!paused) scheduleNext();
+  }
+
+  function skipToPrev() {
+    const prev = [...triggerEvents].reverse().find(e => e.wordFlatIndex < cursorIndex);
+    if (!prev) return;
+    cursorIndex = prev.wordFlatIndex;
+    updateActiveConnection();
+    if (!paused) scheduleNext();
+  }
+
+  // ── Lifecycle ─────────────────────────────────────────────────────────────
+  onMount(() => {
+    timer = setTimeout(scheduleNext, START_DELAY);
+  });
 
   onDestroy(() => {
     if (timer) clearTimeout(timer);
   });
-
-  // Restart timer whenever active connection changes
-  $: active, resetTimer();
 </script>
 
 {#if configError}
@@ -75,40 +125,34 @@
 
   <div class="poem-text">
     {#each poem.lines as line, lineIndex}
-      <p class="line" class:blank={line.trim() === ''}>
+      <p class="line">
         {#if line.trim() === ''}
           &nbsp;
-        {:else if active}
-          {#each segmentLine(line, active.spans, lineIndex) as seg}
-            {#if seg.highlighted}
-              <span
-                class="glow"
-                style="--glow-color: {active.color}"
-              >{seg.text}</span>
-            {:else}
-              {seg.text}
-            {/if}
-          {/each}
         {:else}
-          {line}
+          {#each renderLineSegments(line, lineIndex, wordTokens, cursorIndex, active?.spans ?? []) as seg}
+            <span
+              class:glow={seg.highlighted}
+              class:dim={!seg.revealed}
+              style={seg.highlighted ? `--glow-color: ${active?.color}` : ''}
+            >{seg.text}</span>
+          {/each}
         {/if}
       </p>
     {/each}
   </div>
 
   <footer class="controls">
-    <button on:click={retreat} aria-label="Previous connection">&#8592;</button>
+    <button on:click={skipToPrev} aria-label="Previous connection">&#8592;</button>
 
-    <button on:click={togglePause} class="pause-btn" aria-label={paused ? 'Play' : 'Pause'}>
+    <button on:click={togglePause} aria-label={paused ? 'Play' : 'Pause'}>
       {paused ? '&#9654;' : '&#9646;&#9646;'}
     </button>
 
-    <button on:click={advance} aria-label="Next connection">&#8594;</button>
+    <button on:click={skipToNext} aria-label="Next connection">&#8594;</button>
 
-    <span class="connection-label">
-      {activeIndex + 1} / {resolvedConnections.length}
-      {#if active} &mdash; {active.label}{/if}
-    </span>
+    {#if active}
+      <span class="connection-label">&mdash; {active.label}</span>
+    {/if}
   </footer>
 </article>
 
@@ -149,18 +193,25 @@
     min-height: 1.9em;
   }
 
-  /* The glow effect */
+  /* All text runs through spans so transitions apply uniformly */
+  span {
+    transition:
+      color 0.3s ease,
+      background-color 0.5s ease,
+      text-shadow 0.5s ease;
+  }
+
+  .dim {
+    color: rgba(232, 224, 208, 0.2);
+  }
+
   .glow {
     border-radius: 3px;
     padding: 0 1px;
-    transition:
-      background-color 0.6s ease,
-      text-shadow 0.6s ease,
-      color 0.6s ease;
     background-color: color-mix(in srgb, var(--glow-color) 18%, transparent);
     color: color-mix(in srgb, var(--glow-color) 80%, #e8e0d0);
     text-shadow:
-      0 0 8px color-mix(in srgb, var(--glow-color) 60%, transparent),
+      0 0 8px  color-mix(in srgb, var(--glow-color) 60%, transparent),
       0 0 20px color-mix(in srgb, var(--glow-color) 30%, transparent);
   }
 
@@ -169,8 +220,6 @@
     display: flex;
     align-items: center;
     gap: 0.75rem;
-    font-size: 0.85rem;
-    color: #666;
   }
 
   .controls button {
@@ -190,8 +239,8 @@
   }
 
   .connection-label {
-    margin-left: 0.5rem;
-    color: #666;
+    margin-left: 0.25rem;
+    color: #555;
     font-style: italic;
     font-size: 0.8rem;
   }

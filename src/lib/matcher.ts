@@ -93,34 +93,91 @@ export function resolveSpans(lines: string[], phrases: PhraseEntry[]): Span[] {
   return spans;
 }
 
-// Split a single line's text into segments: plain text and highlighted spans.
-export interface Segment {
-  text: string;
-  highlighted: boolean;
+// ---------------------------------------------------------------------------
+// Word tokenization and reveal rendering
+// ---------------------------------------------------------------------------
+
+export interface WordToken {
+  lineIndex: number;
+  start: number; // char offset in line
+  end: number;
+  flatIndex: number; // position in the flat across-all-lines list
 }
 
-export function segmentLine(lineText: string, spans: Span[], lineIndex: number): Segment[] {
-  // Collect all highlight ranges on this line, sorted by start position
-  const ranges = spans
-    .filter(s => s.lineIndex === lineIndex)
-    .sort((a, b) => a.start - b.start);
-
-  if (ranges.length === 0) return [{ text: lineText, highlighted: false }];
-
-  const segments: Segment[] = [];
-  let cursor = 0;
-
-  for (const range of ranges) {
-    if (cursor < range.start) {
-      segments.push({ text: lineText.slice(cursor, range.start), highlighted: false });
+// Build a flat list of every word in the poem, in reading order.
+// "Word" = any run of non-whitespace characters (punctuation stays attached).
+export function tokenizeWords(lines: string[]): WordToken[] {
+  const tokens: WordToken[] = [];
+  let flatIndex = 0;
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+    const wordRegex = /\S+/g;
+    let match: RegExpExecArray | null;
+    while ((match = wordRegex.exec(lines[lineIndex])) !== null) {
+      tokens.push({
+        lineIndex,
+        start: match.index,
+        end: match.index + match[0].length,
+        flatIndex: flatIndex++,
+      });
     }
-    segments.push({ text: lineText.slice(range.start, range.end), highlighted: true });
-    cursor = range.end;
   }
+  return tokens;
+}
 
-  if (cursor < lineText.length) {
-    segments.push({ text: lineText.slice(cursor), highlighted: false });
+export interface RenderSegment {
+  text: string;
+  revealed: boolean; // has the reading cursor passed this text?
+  highlighted: boolean; // is this part of the active connection?
+}
+
+// Merge word-level reveal state and connection span highlights into a single
+// list of segments for rendering a line.
+//
+// Highlighted text is always treated as revealed (connections can point ahead
+// in the poem before the cursor arrives, so the full connection is visible
+// as soon as it triggers).
+export function renderLineSegments(
+  lineText: string,
+  lineIndex: number,
+  wordTokens: WordToken[],
+  cursorIndex: number,
+  activeSpans: Span[],
+): RenderSegment[] {
+  const lineTokens = wordTokens.filter(t => t.lineIndex === lineIndex);
+  const lineSpans  = activeSpans.filter(s => s.lineIndex === lineIndex);
+
+  // Collect all character positions where something changes
+  const breakpointSet = new Set<number>([0, lineText.length]);
+  for (const t of lineTokens) { breakpointSet.add(t.start); breakpointSet.add(t.end); }
+  for (const s of lineSpans)  { breakpointSet.add(s.start); breakpointSet.add(s.end); }
+
+  const breakpoints = Array.from(breakpointSet).sort((a, b) => a - b);
+  const segments: RenderSegment[] = [];
+
+  for (let i = 0; i < breakpoints.length - 1; i++) {
+    const segStart = breakpoints[i];
+    const segEnd   = breakpoints[i + 1];
+    const text = lineText.slice(segStart, segEnd);
+    if (!text) continue;
+
+    const mid = (segStart + segEnd) / 2;
+
+    // Is this segment's text revealed by the cursor?
+    const containingToken = lineTokens.find(t => t.start <= mid && t.end > mid);
+    let revealed: boolean;
+    if (containingToken) {
+      revealed = containingToken.flatIndex <= cursorIndex;
+    } else {
+      // Whitespace between words: revealed once the preceding word is revealed
+      const prevToken = lineTokens.filter(t => t.end <= segStart).pop();
+      revealed = prevToken ? prevToken.flatIndex <= cursorIndex : false;
+    }
+
+    const highlighted = lineSpans.some(s => s.start <= segStart && s.end >= segEnd);
+
+    segments.push({ text, revealed: revealed || highlighted, highlighted });
   }
 
   return segments;
 }
+
