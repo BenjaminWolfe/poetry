@@ -200,13 +200,13 @@
   /* All text runs through spans so the reveal transition is uniform */
   span {
     transition:
-      color 0.15s ease,
-      background-color 0.5s ease,
-      text-shadow 0.5s ease;
+      color 0.4s ease,
+      background-color 0.6s ease,
+      text-shadow 0.6s ease;
   }
 
   .dim {
-    color: rgba(232, 224, 208, 0.2);
+    color: rgba(232, 224, 208, 0.45);
   }
 
   .glow {

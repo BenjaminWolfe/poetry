@@ -98,10 +98,10 @@ export function resolveSpans(lines: string[], phrases: PhraseEntry[]): Span[] {
 // ---------------------------------------------------------------------------
 
 // Timing constants (ms) — tune these to adjust reading feel
-const CHAR_MS      = 28;   // per-character rate within a word
-const WORD_PAUSE   = 110;  // pause before the first char of a new word
-const LINE_PAUSE   = 300;  // pause before the first word of a new line
-const STANZA_PAUSE = 700;  // pause before the first word after a blank line
+const CHAR_MS      = 50;    // per-character rate within a word
+const WORD_PAUSE   = 190;   // pause before the first char of a new word
+const LINE_PAUSE   = 520;   // pause before the first word of a new line
+const STANZA_PAUSE = 1300;  // pause before the first word after a blank line
 
 export interface CharToken {
   lineIndex: number;
