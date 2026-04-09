@@ -31,11 +31,15 @@ function parsePhraseEntry(entry: PhraseEntry): {
   return { matchText: matchText.trim(), highlightText: highlightText.trim(), lineHint };
 }
 
-// Case-insensitive search for needle within haystack, returns [start, end] or null.
+// Case-insensitive, word-boundary-aware search for needle within haystack.
+// Returns [start, end] or null.
+// Word boundaries prevent "pity" from matching inside "pitiless".
 function findIn(haystack: string, needle: string): [number, number] | null {
-  const idx = haystack.toLowerCase().indexOf(needle.toLowerCase());
-  if (idx === -1) return null;
-  return [idx, idx + needle.length];
+  const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const regex = new RegExp(`\\b${escaped}\\b`, 'i');
+  const match = regex.exec(haystack);
+  if (!match) return null;
+  return [match.index, match.index + match[0].length];
 }
 
 // Given a line and the match/highlight texts, return the span of the highlighted

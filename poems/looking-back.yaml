@@ -20,7 +20,7 @@ connections:
   - label: "remember / do not remember"
     color: "#c084fc"
     phrases:
-      - "Remember me"
+      - {line: 1, text: "Remember me"}  # disambiguate: also appears inside "Do not remember me"
       - "Do not remember me"
 
   - label: "child, girl, woman"

@@ -10,10 +10,18 @@
   let paused = false;
 
   // Pre-resolve all connections up front so errors surface immediately
-  const resolvedConnections = poem.connections.map(conn => ({
-    ...conn,
-    spans: resolveSpans(poem.lines, conn.phrases),
-  }));
+  let configError: string | null = null;
+  const resolvedConnections = (() => {
+    try {
+      return poem.connections.map(conn => ({
+        ...conn,
+        spans: resolveSpans(poem.lines, conn.phrases),
+      }));
+    } catch (e) {
+      configError = e instanceof Error ? e.message : String(e);
+      return [];
+    }
+  })();
 
   $: active = resolvedConnections[activeIndex] ?? null;
 
@@ -52,6 +60,12 @@
   // Restart timer whenever active connection changes
   $: active, resetTimer();
 </script>
+
+{#if configError}
+  <div class="config-error">
+    <strong>Configuration error:</strong> {configError}
+  </div>
+{/if}
 
 <article class="poem-viewer">
   <header>
@@ -180,5 +194,18 @@
     color: #666;
     font-style: italic;
     font-size: 0.8rem;
+  }
+
+  :global(.config-error) {
+    max-width: 600px;
+    margin: 2rem auto;
+    padding: 1rem 1.5rem;
+    background: #2a0a0a;
+    border: 1px solid #7f1d1d;
+    border-radius: 6px;
+    color: #fca5a5;
+    font-family: monospace;
+    font-size: 0.85rem;
+    line-height: 1.6;
   }
 </style>
