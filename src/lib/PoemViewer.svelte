@@ -37,8 +37,8 @@
   const triggerEvents: TriggerEvent[] = resolvedConnections
     .map((conn, connectionIndex) => {
       if (!conn.spans.length) return null;
-      const firstSpan: Span = conn.spans[0];
-      const flatIndex = charPosMap.get(`${firstSpan.lineIndex},${firstSpan.start}`);
+      const lastSpan: Span = conn.spans[conn.spans.length - 1];
+      const flatIndex = charPosMap.get(`${lastSpan.lineIndex},${lastSpan.start}`);
       return flatIndex !== undefined ? { charFlatIndex: flatIndex, connectionIndex } : null;
     })
     .filter((e): e is TriggerEvent => e !== null)
