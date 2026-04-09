@@ -97,11 +97,13 @@ export function resolveSpans(lines: string[], phrases: PhraseEntry[]): Span[] {
 // Character tokenization and reveal rendering
 // ---------------------------------------------------------------------------
 
-// Timing constants (ms) — tune these to adjust reading feel
-const CHAR_MS      = 50;    // per-character rate within a word
-const WORD_PAUSE   = 190;   // pause before the first char of a new word
-const LINE_PAUSE   = 520;   // pause before the first word of a new line
-const STANZA_PAUSE = 1300;  // pause before the first word after a blank line
+// Timing constants (ms) — tune these to adjust reading feel.
+// SPEED scales all delays proportionally: 1.0 = current, 0.5 = twice as fast, 2.0 = twice as slow.
+const SPEED        = 1.0;
+const CHAR_MS      = 50  * SPEED;  // per-character rate within a word
+const WORD_PAUSE   = 190 * SPEED;  // pause before the first char of a new word
+const LINE_PAUSE   = 520 * SPEED;  // pause before the first word of a new line
+const STANZA_PAUSE = 1300 * SPEED; // pause before the first word after a blank line
 
 export interface CharToken {
   lineIndex: number;
@@ -165,32 +167,33 @@ export function tokenizeChars(lines: string[]): CharToken[] {
 
 export interface RenderSegment {
   text: string;
-  revealed: boolean;   // has the reading cursor passed this text?
+  revealed: boolean;    // has the reading cursor passed this text?
   highlighted: boolean; // is this part of the active connection?
+  fading: boolean;      // is this part of the previous connection, currently fading out?
 }
 
-// Produce a list of render segments for one line given the current cursor position
-// and any active connection spans.
+// Produce a list of render segments for one line given the current cursor position,
+// active connection spans, and any connection currently fading out.
 //
 // cursorLine / cursorCharInLine: the line and char index of the last revealed character
 // (-1 / -1 = nothing revealed yet).
 //
-// Highlighted text is always treated as revealed so that a connection can show its
-// full set of phrases even before the cursor physically arrives at them.
+// Highlighted (and fading) text is always treated as revealed so that connections
+// can show all their phrases even before the cursor physically arrives at them.
 export function renderLineSegments(
   lineText: string,
   lineIndex: number,
   cursorLine: number,
   cursorCharInLine: number,
   activeSpans: Span[],
+  fadingSpans: Span[] = [],
 ): RenderSegment[] {
-  const lineSpans = activeSpans.filter(s => s.lineIndex === lineIndex);
+  const lineActive = activeSpans.filter(s => s.lineIndex === lineIndex);
+  const lineFading = fadingSpans.filter(s => s.lineIndex === lineIndex);
 
-  // Is the character at position ci (on this line) revealed?
   function isRevealed(ci: number): boolean {
     if (lineIndex < cursorLine) return true;
     if (lineIndex > cursorLine) return false;
-    // On the cursor line: spaces are revealed once the preceding non-space is revealed
     if (/\s/.test(lineText[ci])) {
       for (let j = ci - 1; j >= 0; j--) {
         if (!/\s/.test(lineText[j])) return j <= cursorCharInLine;
@@ -201,10 +204,14 @@ export function renderLineSegments(
   }
 
   function isHighlighted(ci: number): boolean {
-    return lineSpans.some(s => s.start <= ci && ci < s.end);
+    return lineActive.some(s => s.start <= ci && ci < s.end);
   }
 
-  // Walk character by character, emitting a new segment whenever state changes
+  function isFading(ci: number): boolean {
+    // Fading only applies where the active connection isn't already highlighting
+    return !isHighlighted(ci) && lineFading.some(s => s.start <= ci && ci < s.end);
+  }
+
   const segments: RenderSegment[] = [];
   let segStart = 0;
 
@@ -212,14 +219,16 @@ export function renderLineSegments(
     const atEnd = ci === lineText.length;
     const stateChanged = !atEnd && (
       isRevealed(ci)    !== isRevealed(ci - 1) ||
-      isHighlighted(ci) !== isHighlighted(ci - 1)
+      isHighlighted(ci) !== isHighlighted(ci - 1) ||
+      isFading(ci)      !== isFading(ci - 1)
     );
     if (!atEnd && !stateChanged) continue;
 
     const text = lineText.slice(segStart, ci);
     const rev = isRevealed(segStart);
     const hl  = isHighlighted(segStart);
-    if (text) segments.push({ text, revealed: rev || hl, highlighted: hl });
+    const fd  = isFading(segStart);
+    if (text) segments.push({ text, revealed: rev || hl || fd, highlighted: hl, fading: fd });
     segStart = ci;
   }
 

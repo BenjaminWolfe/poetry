@@ -6,7 +6,8 @@
 
   export let poem: Poem;
 
-  const START_DELAY = 700; // ms before the first character appears
+  const START_DELAY    = 700;   // ms before the first character appears
+  const FADE_DURATION  = 2500;  // ms for a connection to fade out after it's replaced
 
   // ── Config error handling ─────────────────────────────────────────────────
   let configError: string | null = null;
@@ -26,7 +27,6 @@
   // ── Character sequence ────────────────────────────────────────────────────
   const charSequence: CharToken[] = tokenizeChars(poem.lines);
 
-  // Lookup: "lineIndex,charIndex" → flatIndex (for mapping span starts to triggers)
   const charPosMap = new Map<string, number>(
     charSequence.map(t => [`${t.lineIndex},${t.charIndex}`, t.flatIndex])
   );
@@ -45,16 +45,18 @@
     .sort((a, b) => a.charFlatIndex - b.charFlatIndex);
 
   // ── Reading state ─────────────────────────────────────────────────────────
-  let charCursorIndex       = -1;  // index into charSequence (-1 = nothing revealed)
-  let cursorLine            = -1;  // lineIndex of last revealed char
-  let cursorCharInLine      = -1;  // charIndex within that line
+  let charCursorIndex       = -1;
+  let cursorLine            = -1;
+  let cursorCharInLine      = -1;
   let activeConnectionIndex: number | null = null;
+  let fadingConnectionIndex: number | null = null;
   let paused                = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let fadeTimer: ReturnType<typeof setTimeout> | null = null;
 
-  $: active = activeConnectionIndex !== null
-    ? resolvedConnections[activeConnectionIndex]
-    : null;
+  $: active  = activeConnectionIndex !== null ? resolvedConnections[activeConnectionIndex]  : null;
+  $: fading  = fadingConnectionIndex !== null ? resolvedConnections[fadingConnectionIndex] : null;
+  $: fadingSpans = fading?.spans ?? [];
 
   function updateCursorPos() {
     if (charCursorIndex < 0) { cursorLine = -1; cursorCharInLine = -1; return; }
@@ -63,10 +65,21 @@
     cursorCharInLine = tok.charIndex;
   }
 
+  function setActiveConnection(newIndex: number | null) {
+    if (newIndex === activeConnectionIndex) return;
+    // Previous connection starts fading out
+    if (activeConnectionIndex !== null) {
+      fadingConnectionIndex = activeConnectionIndex;
+      if (fadeTimer) clearTimeout(fadeTimer);
+      fadeTimer = setTimeout(() => { fadingConnectionIndex = null; }, FADE_DURATION);
+    }
+    activeConnectionIndex = newIndex;
+  }
+
   function updateActiveConnection() {
     const passed = triggerEvents.filter(e => e.charFlatIndex <= charCursorIndex);
     const next   = passed.length ? passed[passed.length - 1].connectionIndex : null;
-    if (next !== activeConnectionIndex) activeConnectionIndex = next;
+    setActiveConnection(next);
   }
 
   function scheduleNext() {
@@ -111,7 +124,8 @@
   });
 
   onDestroy(() => {
-    if (timer) clearTimeout(timer);
+    if (timer)     clearTimeout(timer);
+    if (fadeTimer) clearTimeout(fadeTimer);
   });
 </script>
 
@@ -133,11 +147,16 @@
         {#if line.trim() === ''}
           &nbsp;
         {:else}
-          {#each renderLineSegments(line, lineIndex, cursorLine, cursorCharInLine, active?.spans ?? []) as seg}
+          {#each renderLineSegments(line, lineIndex, cursorLine, cursorCharInLine, active?.spans ?? [], fadingSpans) as seg}
             <span
               class:glow={seg.highlighted}
+              class:glow-decay={seg.fading}
               class:dim={!seg.revealed}
-              style={seg.highlighted ? `--glow-color: ${active?.color}` : ''}
+              style={seg.highlighted
+                ? `--glow-color: ${active?.color}`
+                : seg.fading
+                  ? `--glow-color: ${fading?.color}`
+                  : ''}
             >{seg.text}</span>
           {/each}
         {/if}
@@ -197,26 +216,36 @@
     min-height: 1.9em;
   }
 
-  /* All text runs through spans so the reveal transition is uniform */
+  /* Base transition for all text spans — governs both reveal and glow attack */
   span {
     transition:
-      color 0.4s ease,
-      background-color 0.6s ease,
-      text-shadow 0.6s ease;
+      color 0.5s ease,
+      background-color 0.7s ease,
+      text-shadow 0.7s ease;
   }
 
   .dim {
-    color: rgba(232, 224, 208, 0.45);
+    color: rgba(232, 224, 208, 0.60);
   }
 
+  /* Active connection: glowing */
   .glow {
     border-radius: 3px;
-    padding: 0 1px;
+    /* No padding — padding shifts layout as chars join/leave the span */
     background-color: color-mix(in srgb, var(--glow-color) 18%, transparent);
     color: color-mix(in srgb, var(--glow-color) 80%, #e8e0d0);
     text-shadow:
       0 0 8px  color-mix(in srgb, var(--glow-color) 60%, transparent),
       0 0 20px color-mix(in srgb, var(--glow-color) 30%, transparent);
+  }
+
+  /* Previous connection: fading back to normal text over a longer duration */
+  .glow-decay {
+    transition:
+      color 2.5s ease,
+      background-color 2.5s ease,
+      text-shadow 2.5s ease;
+    /* No glow properties — CSS transitions FROM the last computed glow values TO normal */
   }
 
   .controls {
