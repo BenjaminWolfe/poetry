@@ -94,88 +94,133 @@ export function resolveSpans(lines: string[], phrases: PhraseEntry[]): Span[] {
 }
 
 // ---------------------------------------------------------------------------
-// Word tokenization and reveal rendering
+// Character tokenization and reveal rendering
 // ---------------------------------------------------------------------------
 
-export interface WordToken {
+// Timing constants (ms) — tune these to adjust reading feel
+const CHAR_MS      = 28;   // per-character rate within a word
+const WORD_PAUSE   = 110;  // pause before the first char of a new word
+const LINE_PAUSE   = 300;  // pause before the first word of a new line
+const STANZA_PAUSE = 700;  // pause before the first word after a blank line
+
+export interface CharToken {
   lineIndex: number;
-  start: number; // char offset in line
-  end: number;
-  flatIndex: number; // position in the flat across-all-lines list
+  charIndex: number;  // position within the line text
+  flatIndex: number;  // position in the flat across-all-lines sequence
+  delayBefore: number; // ms to wait before revealing this character
 }
 
-// Build a flat list of every word in the poem, in reading order.
-// "Word" = any run of non-whitespace characters (punctuation stays attached).
-export function tokenizeWords(lines: string[]): WordToken[] {
-  const tokens: WordToken[] = [];
+// Build a flat sequence of every non-whitespace character, in reading order,
+// with inter-character delays encoding word/line/stanza rhythm.
+// Spaces are omitted from the sequence — they reveal implicitly in renderLineSegments.
+export function tokenizeChars(lines: string[]): CharToken[] {
+  const tokens: CharToken[] = [];
   let flatIndex = 0;
-  for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-    const wordRegex = /\S+/g;
-    let match: RegExpExecArray | null;
-    while ((match = wordRegex.exec(lines[lineIndex])) !== null) {
-      tokens.push({
-        lineIndex,
-        start: match.index,
-        end: match.index + match[0].length,
-        flatIndex: flatIndex++,
-      });
+  let prevContentLine = -1;
+
+  for (let li = 0; li < lines.length; li++) {
+    const line = lines[li];
+    if (!line.trim()) continue; // blank line — marks a stanza break
+
+    const isAfterStanza = prevContentLine !== -1 && li > prevContentLine + 1;
+    let inWord = false;
+
+    for (let ci = 0; ci < line.length; ci++) {
+      const ch = line[ci];
+      if (/\s/.test(ch)) { inWord = false; continue; }
+
+      let delay: number;
+
+      if (!inWord) {
+        // First character of a word — determine structural delay
+        const isFirstOfLine = !/\S/.test(line.slice(0, ci));
+        if (isFirstOfLine) {
+          if (flatIndex === 0)      delay = 0;           // very first char
+          else if (isAfterStanza)   delay = STANZA_PAUSE;
+          else                      delay = LINE_PAUSE;
+        } else {
+          // Word within a line — check if the preceding word ended with punctuation
+          let extra = 0;
+          for (let j = ci - 1; j >= 0; j--) {
+            if (/\s/.test(line[j])) continue;
+            if (/[,;:]/.test(line[j]))  extra = 80;
+            if (/[.!?]/.test(line[j]))  extra = 160;
+            break;
+          }
+          delay = WORD_PAUSE + extra;
+        }
+        inWord = true;
+      } else {
+        delay = CHAR_MS;
+      }
+
+      tokens.push({ lineIndex: li, charIndex: ci, flatIndex: flatIndex++, delayBefore: delay });
     }
+
+    prevContentLine = li;
   }
+
   return tokens;
 }
 
 export interface RenderSegment {
   text: string;
-  revealed: boolean; // has the reading cursor passed this text?
+  revealed: boolean;   // has the reading cursor passed this text?
   highlighted: boolean; // is this part of the active connection?
 }
 
-// Merge word-level reveal state and connection span highlights into a single
-// list of segments for rendering a line.
+// Produce a list of render segments for one line given the current cursor position
+// and any active connection spans.
 //
-// Highlighted text is always treated as revealed (connections can point ahead
-// in the poem before the cursor arrives, so the full connection is visible
-// as soon as it triggers).
+// cursorLine / cursorCharInLine: the line and char index of the last revealed character
+// (-1 / -1 = nothing revealed yet).
+//
+// Highlighted text is always treated as revealed so that a connection can show its
+// full set of phrases even before the cursor physically arrives at them.
 export function renderLineSegments(
   lineText: string,
   lineIndex: number,
-  wordTokens: WordToken[],
-  cursorIndex: number,
+  cursorLine: number,
+  cursorCharInLine: number,
   activeSpans: Span[],
 ): RenderSegment[] {
-  const lineTokens = wordTokens.filter(t => t.lineIndex === lineIndex);
-  const lineSpans  = activeSpans.filter(s => s.lineIndex === lineIndex);
+  const lineSpans = activeSpans.filter(s => s.lineIndex === lineIndex);
 
-  // Collect all character positions where something changes
-  const breakpointSet = new Set<number>([0, lineText.length]);
-  for (const t of lineTokens) { breakpointSet.add(t.start); breakpointSet.add(t.end); }
-  for (const s of lineSpans)  { breakpointSet.add(s.start); breakpointSet.add(s.end); }
-
-  const breakpoints = Array.from(breakpointSet).sort((a, b) => a - b);
-  const segments: RenderSegment[] = [];
-
-  for (let i = 0; i < breakpoints.length - 1; i++) {
-    const segStart = breakpoints[i];
-    const segEnd   = breakpoints[i + 1];
-    const text = lineText.slice(segStart, segEnd);
-    if (!text) continue;
-
-    const mid = (segStart + segEnd) / 2;
-
-    // Is this segment's text revealed by the cursor?
-    const containingToken = lineTokens.find(t => t.start <= mid && t.end > mid);
-    let revealed: boolean;
-    if (containingToken) {
-      revealed = containingToken.flatIndex <= cursorIndex;
-    } else {
-      // Whitespace between words: revealed once the preceding word is revealed
-      const prevToken = lineTokens.filter(t => t.end <= segStart).pop();
-      revealed = prevToken ? prevToken.flatIndex <= cursorIndex : false;
+  // Is the character at position ci (on this line) revealed?
+  function isRevealed(ci: number): boolean {
+    if (lineIndex < cursorLine) return true;
+    if (lineIndex > cursorLine) return false;
+    // On the cursor line: spaces are revealed once the preceding non-space is revealed
+    if (/\s/.test(lineText[ci])) {
+      for (let j = ci - 1; j >= 0; j--) {
+        if (!/\s/.test(lineText[j])) return j <= cursorCharInLine;
+      }
+      return false;
     }
+    return ci <= cursorCharInLine;
+  }
 
-    const highlighted = lineSpans.some(s => s.start <= segStart && s.end >= segEnd);
+  function isHighlighted(ci: number): boolean {
+    return lineSpans.some(s => s.start <= ci && ci < s.end);
+  }
 
-    segments.push({ text, revealed: revealed || highlighted, highlighted });
+  // Walk character by character, emitting a new segment whenever state changes
+  const segments: RenderSegment[] = [];
+  let segStart = 0;
+
+  for (let ci = 1; ci <= lineText.length; ci++) {
+    const atEnd = ci === lineText.length;
+    const stateChanged = !atEnd && (
+      isRevealed(ci)    !== isRevealed(ci - 1) ||
+      isHighlighted(ci) !== isHighlighted(ci - 1)
+    );
+    if (!atEnd && !stateChanged) continue;
+
+    const text = lineText.slice(segStart, ci);
+    const rev = isRevealed(segStart);
+    const hl  = isHighlighted(segStart);
+    if (text) segments.push({ text, revealed: rev || hl, highlighted: hl });
+    segStart = ci;
   }
 
   return segments;

@@ -1,14 +1,12 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import type { Poem } from './types';
-  import { resolveSpans, tokenizeWords, renderLineSegments } from './matcher';
-  import type { Span, WordToken } from './matcher';
+  import { resolveSpans, tokenizeChars, renderLineSegments } from './matcher';
+  import type { Span, CharToken } from './matcher';
 
   export let poem: Poem;
 
-  const WORD_MS       = 280;  // ms per word at normal reading pace
-  const STANZA_MULT   = 4;    // stanza-break pause multiplier
-  const START_DELAY   = 700;  // ms before the reveal begins
+  const START_DELAY = 700; // ms before the first character appears
 
   // ── Config error handling ─────────────────────────────────────────────────
   let configError: string | null = null;
@@ -25,57 +23,62 @@
     }
   })();
 
-  // ── Word tokens ───────────────────────────────────────────────────────────
-  const wordTokens: WordToken[] = tokenizeWords(poem.lines);
+  // ── Character sequence ────────────────────────────────────────────────────
+  const charSequence: CharToken[] = tokenizeChars(poem.lines);
+
+  // Lookup: "lineIndex,charIndex" → flatIndex (for mapping span starts to triggers)
+  const charPosMap = new Map<string, number>(
+    charSequence.map(t => [`${t.lineIndex},${t.charIndex}`, t.flatIndex])
+  );
 
   // ── Trigger events: one per connection, fires at its first phrase ─────────
-  interface TriggerEvent { wordFlatIndex: number; connectionIndex: number; }
+  interface TriggerEvent { charFlatIndex: number; connectionIndex: number; }
 
   const triggerEvents: TriggerEvent[] = resolvedConnections
     .map((conn, connectionIndex) => {
       if (!conn.spans.length) return null;
       const firstSpan: Span = conn.spans[0];
-      const token = wordTokens.find(
-        t => t.lineIndex === firstSpan.lineIndex &&
-             t.start <= firstSpan.start &&
-             t.end > firstSpan.start
-      );
-      return token ? { wordFlatIndex: token.flatIndex, connectionIndex } : null;
+      const flatIndex = charPosMap.get(`${firstSpan.lineIndex},${firstSpan.start}`);
+      return flatIndex !== undefined ? { charFlatIndex: flatIndex, connectionIndex } : null;
     })
     .filter((e): e is TriggerEvent => e !== null)
-    .sort((a, b) => a.wordFlatIndex - b.wordFlatIndex);
+    .sort((a, b) => a.charFlatIndex - b.charFlatIndex);
 
   // ── Reading state ─────────────────────────────────────────────────────────
-  let cursorIndex          = -1;
+  let charCursorIndex       = -1;  // index into charSequence (-1 = nothing revealed)
+  let cursorLine            = -1;  // lineIndex of last revealed char
+  let cursorCharInLine      = -1;  // charIndex within that line
   let activeConnectionIndex: number | null = null;
-  let paused               = false;
+  let paused                = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
 
   $: active = activeConnectionIndex !== null
     ? resolvedConnections[activeConnectionIndex]
     : null;
 
+  function updateCursorPos() {
+    if (charCursorIndex < 0) { cursorLine = -1; cursorCharInLine = -1; return; }
+    const tok = charSequence[charCursorIndex];
+    cursorLine       = tok.lineIndex;
+    cursorCharInLine = tok.charIndex;
+  }
+
   function updateActiveConnection() {
-    const passed = triggerEvents.filter(e => e.wordFlatIndex <= cursorIndex);
+    const passed = triggerEvents.filter(e => e.charFlatIndex <= charCursorIndex);
     const next   = passed.length ? passed[passed.length - 1].connectionIndex : null;
     if (next !== activeConnectionIndex) activeConnectionIndex = next;
   }
 
-  function nextDelay(): number {
-    if (cursorIndex < 0 || cursorIndex >= wordTokens.length - 1) return WORD_MS;
-    const curr = wordTokens[cursorIndex];
-    const next = wordTokens[cursorIndex + 1];
-    return next.lineIndex - curr.lineIndex > 1 ? WORD_MS * STANZA_MULT : WORD_MS;
-  }
-
   function scheduleNext() {
     if (timer) clearTimeout(timer);
-    if (paused || cursorIndex >= wordTokens.length - 1) return;
+    if (paused || charCursorIndex >= charSequence.length - 1) return;
+    const delay = charSequence[charCursorIndex + 1].delayBefore;
     timer = setTimeout(() => {
-      cursorIndex += 1;
+      charCursorIndex += 1;
+      updateCursorPos();
       updateActiveConnection();
       scheduleNext();
-    }, nextDelay());
+    }, delay);
   }
 
   // ── Controls ──────────────────────────────────────────────────────────────
@@ -85,20 +88,21 @@
     else if (timer) { clearTimeout(timer); timer = null; }
   }
 
-  function skipToNext() {
-    const next = triggerEvents.find(e => e.wordFlatIndex > cursorIndex);
-    if (!next) return;
-    cursorIndex = next.wordFlatIndex;
+  function jumpTo(charFlatIndex: number) {
+    charCursorIndex = charFlatIndex;
+    updateCursorPos();
     updateActiveConnection();
     if (!paused) scheduleNext();
   }
 
+  function skipToNext() {
+    const next = triggerEvents.find(e => e.charFlatIndex > charCursorIndex);
+    if (next) jumpTo(next.charFlatIndex);
+  }
+
   function skipToPrev() {
-    const prev = [...triggerEvents].reverse().find(e => e.wordFlatIndex < cursorIndex);
-    if (!prev) return;
-    cursorIndex = prev.wordFlatIndex;
-    updateActiveConnection();
-    if (!paused) scheduleNext();
+    const prev = [...triggerEvents].reverse().find(e => e.charFlatIndex < charCursorIndex);
+    if (prev) jumpTo(prev.charFlatIndex);
   }
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -129,7 +133,7 @@
         {#if line.trim() === ''}
           &nbsp;
         {:else}
-          {#each renderLineSegments(line, lineIndex, wordTokens, cursorIndex, active?.spans ?? []) as seg}
+          {#each renderLineSegments(line, lineIndex, cursorLine, cursorCharInLine, active?.spans ?? []) as seg}
             <span
               class:glow={seg.highlighted}
               class:dim={!seg.revealed}
@@ -193,10 +197,10 @@
     min-height: 1.9em;
   }
 
-  /* All text runs through spans so transitions apply uniformly */
+  /* All text runs through spans so the reveal transition is uniform */
   span {
     transition:
-      color 0.3s ease,
+      color 0.15s ease,
       background-color 0.5s ease,
       text-shadow 0.5s ease;
   }
