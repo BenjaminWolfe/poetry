@@ -31,32 +31,78 @@
     charSequence.map(t => [`${t.lineIndex},${t.charIndex}`, t.flatIndex])
   );
 
-  // ── Trigger events: one per connection, fires at its first phrase ─────────
-  interface TriggerEvent { charFlatIndex: number; connectionIndex: number; }
+  // ── Trigger events: one per PHRASE, fires at the END of that phrase ───────
+  // Each phrase in each connection gets its own trigger. When it fires, that
+  // connection's "reached phrase count" increments — so connections reveal
+  // progressively as the cursor reads through the poem.
+  interface TriggerEvent {
+    charFlatIndex: number;   // flat index of the LAST char of the phrase
+    connectionIndex: number;
+    phraseIndex: number;     // which phrase within that connection
+  }
 
-  const triggerEvents: TriggerEvent[] = resolvedConnections
-    .map((conn, connectionIndex) => {
-      if (!conn.spans.length) return null;
-      const lastSpan: Span = conn.spans[conn.spans.length - 1];
-      const flatIndex = charPosMap.get(`${lastSpan.lineIndex},${lastSpan.start}`);
-      return flatIndex !== undefined ? { charFlatIndex: flatIndex, connectionIndex } : null;
-    })
-    .filter((e): e is TriggerEvent => e !== null)
-    .sort((a, b) => a.charFlatIndex - b.charFlatIndex);
+  const triggerEvents: TriggerEvent[] = [];
+
+  for (let ci = 0; ci < resolvedConnections.length; ci++) {
+    const conn = resolvedConnections[ci];
+    for (let pi = 0; pi < conn.spans.length; pi++) {
+      const span = conn.spans[pi];
+      // Trigger at the last character of the span (end - 1)
+      const lastCharIndex = span.end - 1;
+      const flatIndex = charPosMap.get(`${span.lineIndex},${lastCharIndex}`);
+      if (flatIndex !== undefined) {
+        triggerEvents.push({ charFlatIndex: flatIndex, connectionIndex: ci, phraseIndex: pi });
+      }
+    }
+  }
+
+  triggerEvents.sort((a, b) => a.charFlatIndex - b.charFlatIndex);
+
+  // For skip-to-next/prev navigation, we want the "connection trigger" to be
+  // the LAST phrase of each connection (the one that completes it).
+  const connectionTriggers: { charFlatIndex: number; connectionIndex: number }[] =
+    resolvedConnections
+      .map((conn, ci) => {
+        if (!conn.spans.length) return null;
+        const lastSpan = conn.spans[conn.spans.length - 1];
+        const lastCharIndex = lastSpan.end - 1;
+        const flatIndex = charPosMap.get(`${lastSpan.lineIndex},${lastCharIndex}`);
+        return flatIndex !== undefined ? { charFlatIndex: flatIndex, connectionIndex: ci } : null;
+      })
+      .filter((e): e is { charFlatIndex: number; connectionIndex: number } => e !== null)
+      .sort((a, b) => a.charFlatIndex - b.charFlatIndex);
 
   // ── Reading state ─────────────────────────────────────────────────────────
   let charCursorIndex       = -1;
   let cursorLine            = -1;
   let cursorCharInLine      = -1;
+
+  // reachedPhrases[connectionIndex] = number of phrases whose trigger the cursor has passed
+  let reachedPhrases: number[] = resolvedConnections.map(() => 0);
+
+  // Which connection is "active" (has at least one phrase reached)?
+  // We show the most recently triggered connection as active.
   let activeConnectionIndex: number | null = null;
   let fadingConnectionIndex: number | null = null;
-  let paused                = false;
+  let fadingReachedCount: number = 0;
+
+  let done      = false;
+  let paused    = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let fadeTimer: ReturnType<typeof setTimeout> | null = null;
 
+  // The spans to actually render as highlighted = only spans[0..reachedCount-1]
+  $: activeReachedCount = activeConnectionIndex !== null ? reachedPhrases[activeConnectionIndex] : 0;
   $: active  = activeConnectionIndex !== null ? resolvedConnections[activeConnectionIndex]  : null;
   $: fading  = fadingConnectionIndex !== null ? resolvedConnections[fadingConnectionIndex] : null;
-  $: fadingSpans = fading?.spans ?? [];
+
+  $: activeSpans = active
+    ? active.spans.slice(0, activeReachedCount)
+    : [];
+
+  $: fadingSpans = fading
+    ? fading.spans.slice(0, fadingReachedCount)
+    : [];
 
   function updateCursorPos() {
     if (charCursorIndex < 0) { cursorLine = -1; cursorCharInLine = -1; return; }
@@ -65,26 +111,42 @@
     cursorCharInLine = tok.charIndex;
   }
 
-  function setActiveConnection(newIndex: number | null) {
+  function setActiveConnection(newIndex: number | null, newReachedCount: number) {
     if (newIndex === activeConnectionIndex) return;
     // Previous connection starts fading out
     if (activeConnectionIndex !== null) {
       fadingConnectionIndex = activeConnectionIndex;
+      fadingReachedCount = reachedPhrases[activeConnectionIndex];
       if (fadeTimer) clearTimeout(fadeTimer);
-      fadeTimer = setTimeout(() => { fadingConnectionIndex = null; }, FADE_DURATION);
+      fadeTimer = setTimeout(() => { fadingConnectionIndex = null; fadingReachedCount = 0; }, FADE_DURATION);
     }
     activeConnectionIndex = newIndex;
   }
 
   function updateActiveConnection() {
-    const passed = triggerEvents.filter(e => e.charFlatIndex <= charCursorIndex);
-    const next   = passed.length ? passed[passed.length - 1].connectionIndex : null;
-    setActiveConnection(next);
+    // Process all trigger events up to the current cursor position
+    const passedEvents = triggerEvents.filter(e => e.charFlatIndex <= charCursorIndex);
+
+    // Rebuild reachedPhrases from scratch based on passed events
+    const newReached = resolvedConnections.map(() => 0);
+    for (const e of passedEvents) {
+      newReached[e.connectionIndex] = Math.max(newReached[e.connectionIndex], e.phraseIndex + 1);
+    }
+    reachedPhrases = newReached;
+
+    // The active connection is whichever had the most recent trigger event
+    const lastEvent = passedEvents.length ? passedEvents[passedEvents.length - 1] : null;
+    const newActiveIndex = lastEvent ? lastEvent.connectionIndex : null;
+
+    setActiveConnection(newActiveIndex, newActiveIndex !== null ? newReached[newActiveIndex] : 0);
   }
 
   function scheduleNext() {
     if (timer) clearTimeout(timer);
-    if (paused || charCursorIndex >= charSequence.length - 1) return;
+    if (paused || charCursorIndex >= charSequence.length - 1) {
+      if (charCursorIndex >= charSequence.length - 1) done = true;
+      return;
+    }
     const delay = charSequence[charCursorIndex + 1].delayBefore;
     timer = setTimeout(() => {
       charCursorIndex += 1;
@@ -105,17 +167,32 @@
     charCursorIndex = charFlatIndex;
     updateCursorPos();
     updateActiveConnection();
+    done = charCursorIndex >= charSequence.length - 1;
     if (!paused) scheduleNext();
   }
 
   function skipToNext() {
-    const next = triggerEvents.find(e => e.charFlatIndex > charCursorIndex);
+    const next = connectionTriggers.find(e => e.charFlatIndex > charCursorIndex);
     if (next) jumpTo(next.charFlatIndex);
   }
 
   function skipToPrev() {
-    const prev = [...triggerEvents].reverse().find(e => e.charFlatIndex < charCursorIndex);
+    const prev = [...connectionTriggers].reverse().find(e => e.charFlatIndex < charCursorIndex);
     if (prev) jumpTo(prev.charFlatIndex);
+  }
+
+  function replay() {
+    if (fadeTimer) { clearTimeout(fadeTimer); fadeTimer = null; }
+    fadingConnectionIndex = null;
+    fadingReachedCount = 0;
+    activeConnectionIndex = null;
+    reachedPhrases = resolvedConnections.map(() => 0);
+    charCursorIndex = -1;
+    cursorLine = -1;
+    cursorCharInLine = -1;
+    done = false;
+    paused = false;
+    timer = setTimeout(scheduleNext, START_DELAY);
   }
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -147,7 +224,7 @@
         {#if line.trim() === ''}
           &nbsp;
         {:else}
-          {#each renderLineSegments(line, lineIndex, cursorLine, cursorCharInLine, active?.spans ?? [], fadingSpans) as seg}
+          {#each renderLineSegments(line, lineIndex, cursorLine, cursorCharInLine, activeSpans, fadingSpans) as seg}
             <span
               class:glow={seg.highlighted}
               class:glow-decay={seg.fading}
@@ -167,9 +244,13 @@
   <footer class="controls">
     <button on:click={skipToPrev} aria-label="Previous connection">&#8592;</button>
 
-    <button on:click={togglePause} aria-label={paused ? 'Play' : 'Pause'}>
-      {paused ? '&#9654;' : '&#9646;&#9646;'}
-    </button>
+    {#if done}
+      <button on:click={replay} aria-label="Replay">&#8635;</button>
+    {:else}
+      <button on:click={togglePause} aria-label={paused ? 'Play' : 'Pause'}>
+        {paused ? '&#9654;' : '&#9646;&#9646;'}
+      </button>
+    {/if}
 
     <button on:click={skipToNext} aria-label="Next connection">&#8594;</button>
 

@@ -17,45 +17,58 @@ lines:
   - "Home"
 
 connections:
-  - label: "remember / do not remember"
+  - label: "remember me / do not remember me"
     color: "#c084fc"
     phrases:
-      - {line: 1, text: "Remember me"}  # disambiguate: also appears inside "Do not remember me"
+      - {line: 1, text: "Remember me"}
       - "Do not remember me"
 
-  - label: "child, girl, woman"
+  - label: "salt / called"
+    color: "#94a3b8"
+    phrases:
+      - "heap of salt"
+      - "she was called"
+
+  - label: "child / girl / woman"
     color: "#fb923c"
     phrases:
       - "The laughing child"
-      - "the merry girl"
-      - "the happy woman"
+      - "The merry girl"
+      - "The happy woman"
 
-  - label: "dead / death"
-    color: "#60a5fa"
+  - label: "happy"
+    color: "#34d399"
     phrases:
-      - "dead"
-      - "death"
+      - "*happy* woman"
+      - "still *happy*"
+
+  - label: "disobedient"
+    color: "#f59e0b"
+    phrases:
+      - "seldom did what she was told"
+      - "still disobedient"
+
+  - label: "city / pity"
+    color: "#f472b6"
+    phrases:
+      - "wicked city"
+      - "pity"
 
   - label: "pity / pitiless"
-    color: "#f472b6"
+    color: "#e879f9"
     phrases:
       - "pity"
       - "*pitiless* faith"
 
-  - label: "pity / city"
-    color: "#f472b6"
+  - label: "ahead / looked back / not forward"
+    color: "#60a5fa"
     phrases:
-      - "pity"
-      - "city"
+      - "ahead"
+      - "looked back"
+      - "not forward"
 
-  - label: "disobedient — come what may"
-    color: "#34d399"
-    phrases:
-      - "seldom did what she was told"
-      - "Or came when she was called"
-      - "I come still disobedient, still happy"
-
-  - label: "she looked back"
+  - label: "wicked city / home"
     color: "#facc15"
     phrases:
-      - "I looked back"
+      - "wicked city"
+      - "Home"
