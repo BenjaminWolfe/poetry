@@ -26,15 +26,15 @@ connections:
   - label: "salt / called"
     color: "#94a3b8"
     phrases:
-      - "heap of salt"
-      - "she was called"
+      - "salt"
+      - "called"
 
   - label: "child / girl / woman"
     color: "#fb923c"
     phrases:
-      - "The laughing child"
-      - "The merry girl"
-      - "The happy woman"
+      - "The laughing *child*"
+      - "The merry *girl*"
+      - "The happy *woman*"
 
   - label: "happy"
     color: "#34d399"

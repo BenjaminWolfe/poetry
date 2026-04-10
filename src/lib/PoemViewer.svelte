@@ -31,12 +31,11 @@
     charSequence.map(t => [`${t.lineIndex},${t.charIndex}`, t.flatIndex])
   );
 
-  // ── Trigger events: one per PHRASE, fires at the END of that phrase ───────
-  // Each phrase in each connection gets its own trigger. When it fires, that
-  // connection's "reached phrase count" increments — so connections reveal
-  // progressively as the cursor reads through the poem.
+  // ── Trigger events: one per PHRASE, fires at the FIRST char of that phrase ──
+  // Firing at the start means the glow begins letter-by-letter as the cursor
+  // reads through each highlighted word, instead of snapping on after the fact.
   interface TriggerEvent {
-    charFlatIndex: number;   // flat index of the LAST char of the phrase
+    charFlatIndex: number;   // flat index of the FIRST char of the phrase
     connectionIndex: number;
     phraseIndex: number;     // which phrase within that connection
   }
@@ -47,9 +46,8 @@
     const conn = resolvedConnections[ci];
     for (let pi = 0; pi < conn.spans.length; pi++) {
       const span = conn.spans[pi];
-      // Trigger at the last character of the span (end - 1)
-      const lastCharIndex = span.end - 1;
-      const flatIndex = charPosMap.get(`${span.lineIndex},${lastCharIndex}`);
+      // Trigger at the FIRST character of the span
+      const flatIndex = charPosMap.get(`${span.lineIndex},${span.start}`);
       if (flatIndex !== undefined) {
         triggerEvents.push({ charFlatIndex: flatIndex, connectionIndex: ci, phraseIndex: pi });
       }
@@ -58,15 +56,14 @@
 
   triggerEvents.sort((a, b) => a.charFlatIndex - b.charFlatIndex);
 
-  // For skip-to-next/prev navigation, we want the "connection trigger" to be
-  // the LAST phrase of each connection (the one that completes it).
+  // For skip-to-next/prev navigation, jump to the start of the last phrase
+  // (so you land where the connection fully activates and can watch it reveal).
   const connectionTriggers: { charFlatIndex: number; connectionIndex: number }[] =
     resolvedConnections
       .map((conn, ci) => {
         if (!conn.spans.length) return null;
         const lastSpan = conn.spans[conn.spans.length - 1];
-        const lastCharIndex = lastSpan.end - 1;
-        const flatIndex = charPosMap.get(`${lastSpan.lineIndex},${lastCharIndex}`);
+        const flatIndex = charPosMap.get(`${lastSpan.lineIndex},${lastSpan.start}`);
         return flatIndex !== undefined ? { charFlatIndex: flatIndex, connectionIndex: ci } : null;
       })
       .filter((e): e is { charFlatIndex: number; connectionIndex: number } => e !== null)

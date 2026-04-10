@@ -228,7 +228,7 @@ export function renderLineSegments(
     const rev = isRevealed(segStart);
     const hl  = isHighlighted(segStart);
     const fd  = isFading(segStart);
-    if (text) segments.push({ text, revealed: rev || hl || fd, highlighted: hl, fading: fd });
+    if (text) segments.push({ text, revealed: rev || fd, highlighted: hl && rev, fading: fd && rev });
     segStart = ci;
   }
 
