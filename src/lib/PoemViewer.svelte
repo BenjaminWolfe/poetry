@@ -7,7 +7,8 @@
   export let poem: Poem;
 
   const START_DELAY    = 700;   // ms before the first character appears
-  const FADE_DURATION  = 2500;  // ms for a connection to fade out after it's replaced
+  const HOLD_DURATION  = 500;   // ms to hold after a connection completes before it starts fading
+  const FADE_DURATION  = 2500;  // ms for the CSS fade-out transition
 
   // ── Config error handling ─────────────────────────────────────────────────
   let configError: string | null = null;
@@ -90,6 +91,7 @@
   let done      = false;
   let paused    = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let holdTimer: ReturnType<typeof setTimeout> | null = null;  // auto-fade after connection completes
   let fadeTimer: ReturnType<typeof setTimeout> | null = null;
 
   // The spans to actually render as highlighted = only spans[0..reachedCount-1]
@@ -112,14 +114,34 @@
     cursorCharInLine = tok.charIndex;
   }
 
-  function setActiveConnection(newIndex: number | null, newReachedCount: number) {
+  function startFade(connIndex: number) {
+    fadingConnectionIndex = connIndex;
+    fadingReachedCount = reachedPhrases[connIndex];
+    if (fadeTimer) clearTimeout(fadeTimer);
+    fadeTimer = setTimeout(() => { fadingConnectionIndex = null; fadingReachedCount = 0; }, FADE_DURATION);
+  }
+
+  function scheduleAutoFade() {
+    // Called when the active connection has all its phrases reached.
+    // After HOLD_DURATION it fades on its own, without waiting for the next connection.
+    if (holdTimer) clearTimeout(holdTimer);
+    const connToFade = activeConnectionIndex;
+    holdTimer = setTimeout(() => {
+      holdTimer = null;
+      if (activeConnectionIndex === connToFade && connToFade !== null) {
+        startFade(connToFade);
+        activeConnectionIndex = null;
+      }
+    }, HOLD_DURATION);
+  }
+
+  function setActiveConnection(newIndex: number | null) {
     if (newIndex === activeConnectionIndex) return;
+    // Cancel any pending auto-fade for the connection being replaced
+    if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
     // Previous connection starts fading out
     if (activeConnectionIndex !== null) {
-      fadingConnectionIndex = activeConnectionIndex;
-      fadingReachedCount = reachedPhrases[activeConnectionIndex];
-      if (fadeTimer) clearTimeout(fadeTimer);
-      fadeTimer = setTimeout(() => { fadingConnectionIndex = null; fadingReachedCount = 0; }, FADE_DURATION);
+      startFade(activeConnectionIndex);
     }
     activeConnectionIndex = newIndex;
   }
@@ -139,7 +161,15 @@
     const lastEvent = passedEvents.length ? passedEvents[passedEvents.length - 1] : null;
     const newActiveIndex = lastEvent ? lastEvent.connectionIndex : null;
 
-    setActiveConnection(newActiveIndex, newActiveIndex !== null ? newReached[newActiveIndex] : 0);
+    setActiveConnection(newActiveIndex);
+
+    // If the active connection just became complete, schedule its auto-fade
+    if (activeConnectionIndex !== null && holdTimer === null) {
+      const conn = resolvedConnections[activeConnectionIndex];
+      if (reachedPhrases[activeConnectionIndex] === conn.spans.length) {
+        scheduleAutoFade();
+      }
+    }
   }
 
   function scheduleNext() {
@@ -183,6 +213,7 @@
   }
 
   function replay() {
+    if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
     if (fadeTimer) { clearTimeout(fadeTimer); fadeTimer = null; }
     fadingConnectionIndex = null;
     fadingReachedCount = 0;
@@ -203,6 +234,7 @@
 
   onDestroy(() => {
     if (timer)     clearTimeout(timer);
+    if (holdTimer) clearTimeout(holdTimer);
     if (fadeTimer) clearTimeout(fadeTimer);
   });
 </script>
