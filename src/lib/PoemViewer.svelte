@@ -2,12 +2,12 @@
   import { onMount, onDestroy } from 'svelte';
   import type { Poem } from './types';
   import { resolveSpans, tokenizeChars, renderLineSegments } from './matcher';
-  import type { Span, CharToken } from './matcher';
+  import type { Span, CharToken, FadeGroup } from './matcher';
 
   export let poem: Poem;
 
   const START_DELAY    = 700;   // ms before the first character appears
-  const HOLD_DURATION  = 500;   // ms to hold after a connection completes before it starts fading
+  const HOLD_DURATION  = 200;   // ms after cursor leaves the last phrase before fade begins
   const FADE_DURATION  = 2500;  // ms for the CSS fade-out transition
 
   // ── Config error handling ─────────────────────────────────────────────────
@@ -82,30 +82,24 @@
   // reachedPhrases[connectionIndex] = number of phrases whose trigger the cursor has passed
   let reachedPhrases: number[] = resolvedConnections.map(() => 0);
 
-  // Which connection is "active" (has at least one phrase reached)?
-  // We show the most recently triggered connection as active.
   let activeConnectionIndex: number | null = null;
-  let fadingConnectionIndex: number | null = null;
-  let fadingReachedCount: number = 0;
+
+  // Multiple connections can be fading simultaneously — each with its own timer.
+  interface FadeEntry { connIndex: number; count: number; color: string; timer: ReturnType<typeof setTimeout>; }
+  let fadingList: FadeEntry[] = [];
 
   let done      = false;
   let paused    = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
-  let holdTimer: ReturnType<typeof setTimeout> | null = null;  // auto-fade after connection completes
-  let fadeTimer: ReturnType<typeof setTimeout> | null = null;
+  let holdTimer: ReturnType<typeof setTimeout> | null = null;
 
-  // The spans to actually render as highlighted = only spans[0..reachedCount-1]
+  $: active = activeConnectionIndex !== null ? resolvedConnections[activeConnectionIndex] : null;
   $: activeReachedCount = activeConnectionIndex !== null ? reachedPhrases[activeConnectionIndex] : 0;
-  $: active  = activeConnectionIndex !== null ? resolvedConnections[activeConnectionIndex]  : null;
-  $: fading  = fadingConnectionIndex !== null ? resolvedConnections[fadingConnectionIndex] : null;
-
-  $: activeSpans = active
-    ? active.spans.slice(0, activeReachedCount)
-    : [];
-
-  $: fadingSpans = fading
-    ? fading.spans.slice(0, fadingReachedCount)
-    : [];
+  $: activeSpans = active ? active.spans.slice(0, activeReachedCount) : [];
+  $: fadeGroups = fadingList.map(f => ({
+    spans: resolvedConnections[f.connIndex].spans.slice(0, f.count),
+    color: f.color,
+  })) satisfies FadeGroup[];
 
   function updateCursorPos() {
     if (charCursorIndex < 0) { cursorLine = -1; cursorCharInLine = -1; return; }
@@ -115,15 +109,21 @@
   }
 
   function startFade(connIndex: number) {
-    fadingConnectionIndex = connIndex;
-    fadingReachedCount = reachedPhrases[connIndex];
-    if (fadeTimer) clearTimeout(fadeTimer);
-    fadeTimer = setTimeout(() => { fadingConnectionIndex = null; fadingReachedCount = 0; }, FADE_DURATION);
+    const count = reachedPhrases[connIndex];
+    const color = resolvedConnections[connIndex].color;
+    // If already in the fading list, cancel its old timer and update it
+    const existing = fadingList.find(f => f.connIndex === connIndex);
+    if (existing) clearTimeout(existing.timer);
+    const t = setTimeout(() => {
+      fadingList = fadingList.filter(f => f.connIndex !== connIndex);
+    }, FADE_DURATION);
+    fadingList = [
+      ...fadingList.filter(f => f.connIndex !== connIndex),
+      { connIndex, count, color, timer: t },
+    ];
   }
 
   function scheduleAutoFade() {
-    // Called when the active connection has all its phrases reached.
-    // After HOLD_DURATION it fades on its own, without waiting for the next connection.
     if (holdTimer) clearTimeout(holdTimer);
     const connToFade = activeConnectionIndex;
     holdTimer = setTimeout(() => {
@@ -137,37 +137,33 @@
 
   function setActiveConnection(newIndex: number | null) {
     if (newIndex === activeConnectionIndex) return;
-    // Cancel any pending auto-fade for the connection being replaced
     if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
-    // Previous connection starts fading out
-    if (activeConnectionIndex !== null) {
-      startFade(activeConnectionIndex);
-    }
+    if (activeConnectionIndex !== null) startFade(activeConnectionIndex);
     activeConnectionIndex = newIndex;
   }
 
   function updateActiveConnection() {
-    // Process all trigger events up to the current cursor position
     const passedEvents = triggerEvents.filter(e => e.charFlatIndex <= charCursorIndex);
 
-    // Rebuild reachedPhrases from scratch based on passed events
     const newReached = resolvedConnections.map(() => 0);
     for (const e of passedEvents) {
       newReached[e.connectionIndex] = Math.max(newReached[e.connectionIndex], e.phraseIndex + 1);
     }
     reachedPhrases = newReached;
 
-    // The active connection is whichever had the most recent trigger event
     const lastEvent = passedEvents.length ? passedEvents[passedEvents.length - 1] : null;
-    const newActiveIndex = lastEvent ? lastEvent.connectionIndex : null;
+    setActiveConnection(lastEvent ? lastEvent.connectionIndex : null);
 
-    setActiveConnection(newActiveIndex);
-
-    // If the active connection just became complete, schedule its auto-fade
+    // Schedule auto-fade once the cursor has moved past the last char of the
+    // active connection's last phrase (the full phrase has been read).
     if (activeConnectionIndex !== null && holdTimer === null) {
       const conn = resolvedConnections[activeConnectionIndex];
       if (reachedPhrases[activeConnectionIndex] === conn.spans.length) {
-        scheduleAutoFade();
+        const lastSpan = conn.spans[conn.spans.length - 1];
+        const lastCharFlat = charPosMap.get(`${lastSpan.lineIndex},${lastSpan.end - 1}`);
+        if (lastCharFlat !== undefined && charCursorIndex > lastCharFlat) {
+          scheduleAutoFade();
+        }
       }
     }
   }
@@ -212,18 +208,22 @@
     if (prev) jumpTo(prev.charFlatIndex);
   }
 
-  function replay() {
+  function clearAllTimers() {
+    if (timer)     { clearTimeout(timer);     timer     = null; }
     if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
-    if (fadeTimer) { clearTimeout(fadeTimer); fadeTimer = null; }
-    fadingConnectionIndex = null;
-    fadingReachedCount = 0;
+    for (const f of fadingList) clearTimeout(f.timer);
+  }
+
+  function replay() {
+    clearAllTimers();
+    fadingList            = [];
     activeConnectionIndex = null;
-    reachedPhrases = resolvedConnections.map(() => 0);
-    charCursorIndex = -1;
-    cursorLine = -1;
-    cursorCharInLine = -1;
-    done = false;
-    paused = false;
+    reachedPhrases        = resolvedConnections.map(() => 0);
+    charCursorIndex       = -1;
+    cursorLine            = -1;
+    cursorCharInLine      = -1;
+    done                  = false;
+    paused                = false;
     timer = setTimeout(scheduleNext, START_DELAY);
   }
 
@@ -233,9 +233,7 @@
   });
 
   onDestroy(() => {
-    if (timer)     clearTimeout(timer);
-    if (holdTimer) clearTimeout(holdTimer);
-    if (fadeTimer) clearTimeout(fadeTimer);
+    clearAllTimers();
   });
 </script>
 
@@ -257,16 +255,12 @@
         {#if line.trim() === ''}
           &nbsp;
         {:else}
-          {#each renderLineSegments(line, lineIndex, cursorLine, cursorCharInLine, activeSpans, fadingSpans) as seg}
+          {#each renderLineSegments(line, lineIndex, cursorLine, cursorCharInLine, activeSpans, active?.color ?? null, fadeGroups) as seg}
             <span
               class:glow={seg.highlighted}
               class:glow-decay={seg.fading}
               class:dim={!seg.revealed}
-              style={seg.highlighted
-                ? `--glow-color: ${active?.color}`
-                : seg.fading
-                  ? `--glow-color: ${fading?.color}`
-                  : ''}
+              style={seg.color ? `--glow-color: ${seg.color}` : ''}
             >{seg.text}</span>
           {/each}
         {/if}

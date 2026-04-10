@@ -169,27 +169,38 @@ export interface RenderSegment {
   text: string;
   revealed: boolean;    // has the reading cursor passed this text?
   highlighted: boolean; // is this part of the active connection?
-  fading: boolean;      // is this part of the previous connection, currently fading out?
+  fading: boolean;      // is this part of a connection currently fading out?
+  color: string | null; // --glow-color for both highlighted and fading states
+}
+
+// A group of spans currently fading out, with their connection color.
+export interface FadeGroup {
+  spans: Span[];
+  color: string;
 }
 
 // Produce a list of render segments for one line given the current cursor position,
-// active connection spans, and any connection currently fading out.
+// active connection spans + color, and any connections currently fading out.
 //
 // cursorLine / cursorCharInLine: the line and char index of the last revealed character
 // (-1 / -1 = nothing revealed yet).
 //
-// Highlighted (and fading) text is always treated as revealed so that connections
-// can show all their phrases even before the cursor physically arrives at them.
+// Characters glow only once the cursor has physically reached them (hl && rev),
+// so highlighting builds letter-by-letter as the cursor reads each phrase.
+// Characters on lines above the cursor are always "revealed" so past phrases stay lit.
 export function renderLineSegments(
   lineText: string,
   lineIndex: number,
   cursorLine: number,
   cursorCharInLine: number,
   activeSpans: Span[],
-  fadingSpans: Span[] = [],
+  activeColor: string | null = null,
+  fadeGroups: FadeGroup[] = [],
 ): RenderSegment[] {
   const lineActive = activeSpans.filter(s => s.lineIndex === lineIndex);
-  const lineFading = fadingSpans.filter(s => s.lineIndex === lineIndex);
+  const lineFadeGroups = fadeGroups
+    .map(g => ({ ...g, spans: g.spans.filter(s => s.lineIndex === lineIndex) }))
+    .filter(g => g.spans.length > 0);
 
   function isRevealed(ci: number): boolean {
     if (lineIndex < cursorLine) return true;
@@ -203,35 +214,53 @@ export function renderLineSegments(
     return ci <= cursorCharInLine;
   }
 
-  function isHighlighted(ci: number): boolean {
-    return lineActive.some(s => s.start <= ci && ci < s.end);
-  }
-
-  function isFading(ci: number): boolean {
-    // Fading only applies where the active connection isn't already highlighting
-    return !isHighlighted(ci) && lineFading.some(s => s.start <= ci && ci < s.end);
+  // Compute the full visual state for a character position.
+  function stateAt(ci: number): { rev: boolean; hl: boolean; fading: boolean; color: string | null } {
+    const rev = isRevealed(ci);
+    if (rev && lineActive.some(s => s.start <= ci && ci < s.end)) {
+      return { rev, hl: true, fading: false, color: activeColor };
+    }
+    if (rev) {
+      // Most recently added fade group wins (iterate in reverse)
+      for (let i = lineFadeGroups.length - 1; i >= 0; i--) {
+        if (lineFadeGroups[i].spans.some(s => s.start <= ci && ci < s.end)) {
+          return { rev, hl: false, fading: true, color: lineFadeGroups[i].color };
+        }
+      }
+    }
+    return { rev, hl: false, fading: false, color: null };
   }
 
   const segments: RenderSegment[] = [];
   let segStart = 0;
+  let prev = stateAt(0);
 
   for (let ci = 1; ci <= lineText.length; ci++) {
     const atEnd = ci === lineText.length;
-    const stateChanged = !atEnd && (
-      isRevealed(ci)    !== isRevealed(ci - 1) ||
-      isHighlighted(ci) !== isHighlighted(ci - 1) ||
-      isFading(ci)      !== isFading(ci - 1)
+    const curr = atEnd ? prev : stateAt(ci);
+
+    const changed = !atEnd && (
+      curr.rev !== prev.rev ||
+      curr.hl  !== prev.hl  ||
+      curr.fading !== prev.fading ||
+      curr.color  !== prev.color
     );
-    if (!atEnd && !stateChanged) continue;
+
+    if (!atEnd && !changed) { prev = curr; continue; }
 
     const text = lineText.slice(segStart, ci);
-    const rev = isRevealed(segStart);
-    const hl  = isHighlighted(segStart);
-    const fd  = isFading(segStart);
-    if (text) segments.push({ text, revealed: rev || fd, highlighted: hl && rev, fading: fd && rev });
+    if (text) {
+      segments.push({
+        text,
+        revealed: prev.rev || prev.fading,
+        highlighted: prev.hl,
+        fading: prev.fading,
+        color: prev.color,
+      });
+    }
     segStart = ci;
+    prev = curr;
   }
 
   return segments;
 }
-
