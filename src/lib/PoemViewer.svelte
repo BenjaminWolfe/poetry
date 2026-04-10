@@ -54,7 +54,11 @@
     }
   }
 
-  triggerEvents.sort((a, b) => a.charFlatIndex - b.charFlatIndex);
+  triggerEvents.sort((a, b) =>
+    a.charFlatIndex !== b.charFlatIndex
+      ? a.charFlatIndex - b.charFlatIndex
+      : b.connectionIndex - a.connectionIndex  // lower connectionIndex wins ties
+  );
 
   // For skip-to-next/prev navigation, jump to the start of the last phrase
   // (so you land where the connection fully activates and can watch it reveal).
