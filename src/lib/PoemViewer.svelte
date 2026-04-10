@@ -136,10 +136,22 @@
   }
 
   function setActiveConnection(newIndex: number | null) {
-    if (newIndex === activeConnectionIndex) return;
+    if (newIndex === activeConnectionIndex) {
+      // Same connection — a new phrase triggered; cancel any pending per-phrase decay
+      if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+      return;
+    }
     if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
     if (activeConnectionIndex !== null) startFade(activeConnectionIndex);
     activeConnectionIndex = newIndex;
+    // If this connection was fading out, pull it back to active
+    if (newIndex !== null) {
+      const existing = fadingList.find(f => f.connIndex === newIndex);
+      if (existing) {
+        clearTimeout(existing.timer);
+        fadingList = fadingList.filter(f => f.connIndex !== newIndex);
+      }
+    }
   }
 
   function updateActiveConnection() {
@@ -155,12 +167,14 @@
     setActiveConnection(lastEvent ? lastEvent.connectionIndex : null);
 
     // Schedule auto-fade once the cursor has moved past the last char of the
-    // active connection's last phrase (the full phrase has been read).
+    // current phrase (per-phrase decay: each phrase fades when done, then the
+    // connection re-activates and re-glows all prior phrases when the next one triggers).
     if (activeConnectionIndex !== null && holdTimer === null) {
-      const conn = resolvedConnections[activeConnectionIndex];
-      if (reachedPhrases[activeConnectionIndex] === conn.spans.length) {
-        const lastSpan = conn.spans[conn.spans.length - 1];
-        const lastCharFlat = charPosMap.get(`${lastSpan.lineIndex},${lastSpan.end - 1}`);
+      const phraseIdx = reachedPhrases[activeConnectionIndex] - 1;
+      if (phraseIdx >= 0) {
+        const conn = resolvedConnections[activeConnectionIndex];
+        const currentSpan = conn.spans[phraseIdx];
+        const lastCharFlat = charPosMap.get(`${currentSpan.lineIndex},${currentSpan.end - 1}`);
         if (lastCharFlat !== undefined && charCursorIndex > lastCharFlat) {
           scheduleAutoFade();
         }
