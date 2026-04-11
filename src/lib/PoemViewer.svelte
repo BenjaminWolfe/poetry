@@ -186,7 +186,7 @@
         const conn = resolvedConnections[activeConnectionIndex];
         const currentSpan = conn.spans[phraseIdx];
         const lastCharFlat = charPosMap.get(`${currentSpan.lineIndex},${currentSpan.end - 1}`);
-        if (lastCharFlat !== undefined && charCursorIndex > lastCharFlat) {
+        if (lastCharFlat !== undefined && charCursorIndex >= lastCharFlat) {
           scheduleAutoFade();
         }
       }

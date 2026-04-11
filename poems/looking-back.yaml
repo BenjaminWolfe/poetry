@@ -16,15 +16,11 @@ lines:
   - "And I come still disobedient, still happy"
   - "Home"
 
-# Connection ordering matters: when two connections share a phrase, the one
-# listed LAST (highest index) wins the tie-break and becomes the active connection.
-# Key design decisions:
-#   - "wicked city" → wicked city/looked back/home wins (last) → yellow glow
-#   - "pity"        → city/pity wins over pity/pitiless → pink glow, re-activating
-#                     "wicked city" alongside "pity"
-#   - "pitiless"    → only pity/pitiless triggers → lime glow, both phrases
-#   - "looked back" → wicked city/home wins over ahead/... → yellow, two phrases
-#   - "not forward" → only ahead/... triggers → blue re-activates, all three phrases
+# When two connections share a phrase start position, the one listed LAST wins
+# the tie-break and becomes the active connection. Key decisions:
+#   - "wicked city" → wicked city/looked back/home wins (listed last) → yellow
+#   - "pity"        → pity/pitiless wins over city/pity (listed after it)
+#   - "looked back" → wicked city/looked back/home wins over ahead/...
 
 connections:
   - label: "remember me / do not remember me"
@@ -38,14 +34,6 @@ connections:
     phrases:
       - "a heap of salt"
       - "dissolve"
-
-  # "heap of salt / dissolve me" listed after "a heap of salt / dissolve" so that
-  # at "dissolve" (same start char as "dissolve me"), this connection wins the tie.
-  - label: "heap of salt / dissolve me"
-    color: "#818cf8"
-    phrases:
-      - "heap of salt"
-      - "dissolve me"
 
   - label: "salt / called"
     color: "#2dd4bf"
@@ -78,6 +66,12 @@ connections:
       - "*happy* woman"
       - "still *happy*"
 
+  - label: "city / pity"
+    color: "#f472b6"
+    phrases:
+      - "wicked city"
+      - "pity"
+
   - label: "pity / pitiless"
     color: "#a3e635"
     phrases:
@@ -91,14 +85,6 @@ connections:
       - "looked back"
       - "not forward"
 
-  # "city / pity" listed after "pity / pitiless" so at "pity" it wins the tie,
-  # re-activating the "wicked city" glow alongside "pity".
-  - label: "city / pity"
-    color: "#f472b6"
-    phrases:
-      - "wicked city"
-      - "pity"
-
   - label: "desert / springs / earth"
     color: "#f87171"
     phrases:
@@ -106,14 +92,12 @@ connections:
       - "springs"
       - "earth"
 
-  - label: "dead / death"
+  - label: "faith / death"
     color: "#a78bfa"
     phrases:
-      - "dead"
+      - "faith"
       - "death"
 
-  # "wicked city / looked back / home" listed last so it wins ties at both
-  # "wicked city" (over city/pity) and "looked back" (over ahead/...).
   - label: "wicked city / looked back / home"
     color: "#facc15"
     phrases:
