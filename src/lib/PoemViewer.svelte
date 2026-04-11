@@ -175,6 +175,10 @@
     const currentTriggerFlatIndex = lastEvent ? lastEvent.charFlatIndex : -1;
     if (currentTriggerFlatIndex > lastTriggerFlatIndex) {
       lastTriggerFlatIndex = currentTriggerFlatIndex;
+      // DEBUG
+      if (lastEvent!.connectionIndex >= 8 && lastEvent!.connectionIndex <= 12) {
+        console.log(`[trigger] conn=${lastEvent!.connectionIndex} (${resolvedConnections[lastEvent!.connectionIndex].label}) color=${resolvedConnections[lastEvent!.connectionIndex].color} flatIdx=${currentTriggerFlatIndex}`);
+      }
       setActiveConnection(lastEvent!.connectionIndex);
     }
 
@@ -293,6 +297,13 @@
         {/if}
       </p>
     {/each}
+  </div>
+
+  <!-- DEBUG: remove before committing -->
+  <div class="debug-overlay" style="font-family:monospace;font-size:0.75rem;color:#aaa;margin-top:1rem;padding:0.5rem;background:#111;border:1px solid #333;border-radius:4px;">
+    <div>activeConn: {activeConnectionIndex} | color: {active?.color ?? 'none'} | label: {active?.label ?? 'none'}</div>
+    <div>fadingList: {fadingList.map(f => `${f.connIndex}(${resolvedConnections[f.connIndex]?.color})`).join(', ') || 'none'}</div>
+    <div>cursor: line={cursorLine} char={cursorCharInLine}</div>
   </div>
 
   <footer class="controls">
