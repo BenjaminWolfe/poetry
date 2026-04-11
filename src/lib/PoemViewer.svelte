@@ -175,10 +175,6 @@
     const currentTriggerFlatIndex = lastEvent ? lastEvent.charFlatIndex : -1;
     if (currentTriggerFlatIndex > lastTriggerFlatIndex) {
       lastTriggerFlatIndex = currentTriggerFlatIndex;
-      // DEBUG
-      if (lastEvent!.connectionIndex >= 8 && lastEvent!.connectionIndex <= 12) {
-        console.log(`[trigger] conn=${lastEvent!.connectionIndex} (${resolvedConnections[lastEvent!.connectionIndex].label}) color=${resolvedConnections[lastEvent!.connectionIndex].color} flatIdx=${currentTriggerFlatIndex}`);
-      }
       setActiveConnection(lastEvent!.connectionIndex);
     }
 
@@ -299,13 +295,6 @@
     {/each}
   </div>
 
-  <!-- DEBUG: remove before committing -->
-  <div class="debug-overlay" style="font-family:monospace;font-size:0.75rem;color:#aaa;margin-top:1rem;padding:0.5rem;background:#111;border:1px solid #333;border-radius:4px;">
-    <div>activeConn: {activeConnectionIndex} | color: {active?.color ?? 'none'} | label: {active?.label ?? 'none'}</div>
-    <div>fadingList: {fadingList.map(f => `${f.connIndex}(${resolvedConnections[f.connIndex]?.color})`).join(', ') || 'none'}</div>
-    <div>cursor: line={cursorLine} char={cursorCharInLine}</div>
-  </div>
-
   <footer class="controls">
     <button on:click={skipToPrev} aria-label="Previous connection">&#8592;</button>
 
@@ -386,11 +375,12 @@
   }
 
   /* Previous connection: fading back to normal text over a longer duration */
+  /* text-shadow decays faster than color/bg to prevent glow bleed onto adjacent phrases */
   .glow-decay {
     transition:
       color 2.5s ease,
       background-color 2.5s ease,
-      text-shadow 2.5s ease;
+      text-shadow 0.6s ease;
     /* No glow properties — CSS transitions FROM the last computed glow values TO normal */
   }
 
