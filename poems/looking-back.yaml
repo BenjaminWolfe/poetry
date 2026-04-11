@@ -76,7 +76,7 @@ connections:
     color: "#a3e635"
     phrases:
       - "pity"
-      - "*pitiless* faith"
+      - "pitiless"
 
   - label: "ahead / looked back / not forward"
     color: "#60a5fa"
