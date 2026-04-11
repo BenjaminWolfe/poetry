@@ -82,6 +82,10 @@
   // reachedPhrases[connectionIndex] = number of phrases whose trigger the cursor has passed
   let reachedPhrases: number[] = resolvedConnections.map(() => 0);
 
+  // Flat index of the last trigger event we acted on.
+  // setActiveConnection is only called when a NEW trigger fires, not on every char advance.
+  let lastTriggerFlatIndex  = -1;
+
   let activeConnectionIndex: number | null = null;
 
   // Multiple connections can be fading simultaneously — each with its own timer.
@@ -137,14 +141,14 @@
 
   function setActiveConnection(newIndex: number | null) {
     if (newIndex === activeConnectionIndex) {
-      // Same connection — a new phrase triggered; cancel any pending per-phrase decay
+      // Same connection, new phrase triggered — cancel any pending per-phrase decay.
       if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
       return;
     }
     if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
     if (activeConnectionIndex !== null) startFade(activeConnectionIndex);
     activeConnectionIndex = newIndex;
-    // If this connection was fading out, pull it back to active
+    // If this connection was fading out, pull it back to active.
     if (newIndex !== null) {
       const existing = fadingList.find(f => f.connIndex === newIndex);
       if (existing) {
@@ -163,12 +167,19 @@
     }
     reachedPhrases = newReached;
 
+    // Only call setActiveConnection when a NEW trigger event fires — not on every char
+    // advance. Without this gate, setActiveConnection(same) would cancel the holdTimer
+    // on every char, preventing per-phrase decay from ever firing. And after a per-phrase
+    // fade clears activeConnectionIndex, the next char would re-activate it from lastEvent.
     const lastEvent = passedEvents.length ? passedEvents[passedEvents.length - 1] : null;
-    setActiveConnection(lastEvent ? lastEvent.connectionIndex : null);
+    const currentTriggerFlatIndex = lastEvent ? lastEvent.charFlatIndex : -1;
+    if (currentTriggerFlatIndex > lastTriggerFlatIndex) {
+      lastTriggerFlatIndex = currentTriggerFlatIndex;
+      setActiveConnection(lastEvent!.connectionIndex);
+    }
 
-    // Schedule auto-fade once the cursor has moved past the last char of the
-    // current phrase (per-phrase decay: each phrase fades when done, then the
-    // connection re-activates and re-glows all prior phrases when the next one triggers).
+    // Schedule auto-fade once the cursor has moved past the last char of the current phrase
+    // (per-phrase decay). Re-activates with all prior phrases when the next phrase triggers.
     if (activeConnectionIndex !== null && holdTimer === null) {
       const phraseIdx = reachedPhrases[activeConnectionIndex] - 1;
       if (phraseIdx >= 0) {
@@ -205,6 +216,7 @@
   }
 
   function jumpTo(charFlatIndex: number) {
+    lastTriggerFlatIndex = -1;
     charCursorIndex = charFlatIndex;
     updateCursorPos();
     updateActiveConnection();
@@ -238,6 +250,7 @@
     cursorCharInLine      = -1;
     done                  = false;
     paused                = false;
+    lastTriggerFlatIndex  = -1;
     timer = setTimeout(scheduleNext, START_DELAY);
   }
 
