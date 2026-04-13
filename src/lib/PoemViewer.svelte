@@ -352,7 +352,13 @@
   }
 
   /* Base transition for all text spans — governs both reveal and glow attack */
+  /* inline-block gives clip-path a well-defined reference box; no padding/margin
+     so layout is identical to inline. clip-path clips text-shadow horizontally
+     to each span's own bounds, preventing glow bleed into adjacent phrases. */
   span {
+    display: inline-block;
+    vertical-align: baseline;
+    clip-path: inset(-25px 0);
     transition:
       color 0.5s ease,
       background-color 0.7s ease,
@@ -375,12 +381,11 @@
   }
 
   /* Previous connection: fading back to normal text over a longer duration */
-  /* text-shadow decays faster than color/bg to prevent glow bleed onto adjacent phrases */
   .glow-decay {
     transition:
       color 2.5s ease,
       background-color 2.5s ease,
-      text-shadow 0.6s ease;
+      text-shadow 2.5s ease;
     /* No glow properties — CSS transitions FROM the last computed glow values TO normal */
   }
 
