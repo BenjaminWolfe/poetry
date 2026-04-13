@@ -352,12 +352,10 @@
   }
 
   /* Base transition for all text spans — governs both reveal and glow attack */
-  /* inline-block gives clip-path a well-defined reference box; no padding/margin
-     so layout is identical to inline. clip-path clips text-shadow horizontally
-     to each span's own bounds, preventing glow bleed into adjacent phrases. */
+  /* clip-path clips text-shadow horizontally to each span's own bounds,
+     preventing glow bleed into adjacent phrases. Vertical -25px allows the
+     glow halo to bloom above/below the text line. */
   span {
-    display: inline-block;
-    vertical-align: baseline;
     clip-path: inset(-25px 0);
     transition:
       color 0.5s ease,
