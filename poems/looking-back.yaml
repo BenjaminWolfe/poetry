@@ -18,9 +18,10 @@ lines:
 
 # When two connections share a phrase start position, the one listed LAST wins
 # the tie-break and becomes the active connection. Key decisions:
-#   - "wicked city" → wicked city/looked back/home wins (listed last) → yellow
-#   - "pity"        → pity/pitiless wins over city/pity (listed after it)
-#   - "looked back" → wicked city/looked back/home wins over ahead/...
+#   - "a heap of salt" → salt/Lot's bride wins over salt/dissolve (listed after it) → green
+#   - "wicked city"    → wicked city/looked back/home wins (listed last) → yellow
+#   - "pity"           → pity/pitiless wins over city/pity (listed after it) → lime
+#   - "looked back"    → wicked city/looked back/home wins over ahead/... → yellow
 
 connections:
   - label: "remember me / do not remember me"
@@ -34,6 +35,12 @@ connections:
     phrases:
       - "a heap of salt"
       - "dissolve"
+
+  - label: "a heap of salt / Lot's bride"
+    color: "#4ade80"
+    phrases:
+      - "a heap of salt"
+      - "Lot's bride"
 
   - label: "salt / called"
     color: "#2dd4bf"

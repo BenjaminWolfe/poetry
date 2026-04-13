@@ -58,7 +58,7 @@
   triggerEvents.sort((a, b) =>
     a.charFlatIndex !== b.charFlatIndex
       ? a.charFlatIndex - b.charFlatIndex
-      : b.connectionIndex - a.connectionIndex  // lower connectionIndex wins ties
+      : a.connectionIndex - b.connectionIndex  // higher connectionIndex wins ties (listed last)
   );
 
   // For skip-to-next/prev navigation, jump to the start of the last phrase
@@ -302,7 +302,7 @@
       <button on:click={replay} aria-label="Replay">&#8635;</button>
     {:else}
       <button on:click={togglePause} aria-label={paused ? 'Play' : 'Pause'}>
-        {paused ? '&#9654;' : '&#9646;&#9646;'}
+        {#if paused}&#9654;{:else}&#9646;&#9646;{/if}
       </button>
     {/if}
 
