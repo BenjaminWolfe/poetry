@@ -230,7 +230,13 @@
   }
 
   function skipToPrev() {
-    const prev = [...connectionTriggers].reverse().find(e => e.charFlatIndex < charCursorIndex);
+    // Use the active connection's own trigger as the ceiling, not the cursor.
+    // If we used the cursor, the animation advancing past the trigger would
+    // cause every press to re-land on the same trigger (stuck in a loop).
+    const activeTriggerFlat = activeConnectionIndex !== null
+      ? (connectionTriggers.find(e => e.connectionIndex === activeConnectionIndex)?.charFlatIndex ?? charCursorIndex)
+      : charCursorIndex;
+    const prev = [...connectionTriggers].reverse().find(e => e.charFlatIndex < activeTriggerFlat);
     if (prev) jumpTo(prev.charFlatIndex);
   }
 
