@@ -20,7 +20,7 @@ lines:
 # the tie-break and becomes the active connection. Key decisions:
 #   - "a heap of salt" → salt/Lot's bride wins over salt/dissolve (listed after it) → green
 #   - "wicked city"    → wicked city/looked back/home wins (listed last) → yellow
-#   - "pity"           → pity/pitiless wins over city/pity (listed after it) → lime
+#   - "pity"           → city/pity wins (listed after pity/pitiless) → pink, re-glows "wicked city"
 #   - "looked back"    → wicked city/looked back/home wins over ahead/... → yellow
 
 connections:
@@ -73,17 +73,17 @@ connections:
       - "*happy* woman"
       - "still *happy*"
 
-  - label: "city / pity"
-    color: "#f472b6"
-    phrases:
-      - "wicked city"
-      - "pity"
-
   - label: "pity / pitiless"
     color: "#a3e635"
     phrases:
       - "pity"
       - "pitiless"
+
+  - label: "city / pity"
+    color: "#f472b6"
+    phrases:
+      - "wicked city"
+      - "pity"
 
   - label: "ahead / looked back / not forward"
     color: "#60a5fa"
