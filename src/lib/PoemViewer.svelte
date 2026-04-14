@@ -61,7 +61,7 @@
       : a.connectionIndex - b.connectionIndex  // higher connectionIndex wins ties (listed last)
   );
 
-  // For skip-to-next/prev navigation, jump to the start of the last phrase
+  // For skip-to-next navigation, jump to the start of the last phrase
   // (so you land where the connection fully activates and can watch it reveal).
   const connectionTriggers: { charFlatIndex: number; connectionIndex: number }[] =
     resolvedConnections
@@ -69,6 +69,19 @@
         if (!conn.spans.length) return null;
         const lastSpan = conn.spans[conn.spans.length - 1];
         const flatIndex = charPosMap.get(`${lastSpan.lineIndex},${lastSpan.start}`);
+        return flatIndex !== undefined ? { charFlatIndex: flatIndex, connectionIndex: ci } : null;
+      })
+      .filter((e): e is { charFlatIndex: number; connectionIndex: number } => e !== null)
+      .sort((a, b) => a.charFlatIndex - b.charFlatIndex);
+
+  // For skip-to-prev navigation, jump to the start of the FIRST phrase
+  // (so you land where the connection first appears and can watch it build).
+  const connectionFirstTriggers: { charFlatIndex: number; connectionIndex: number }[] =
+    resolvedConnections
+      .map((conn, ci) => {
+        if (!conn.spans.length) return null;
+        const firstSpan = conn.spans[0];
+        const flatIndex = charPosMap.get(`${firstSpan.lineIndex},${firstSpan.start}`);
         return flatIndex !== undefined ? { charFlatIndex: flatIndex, connectionIndex: ci } : null;
       })
       .filter((e): e is { charFlatIndex: number; connectionIndex: number } => e !== null)
@@ -230,17 +243,18 @@
   }
 
   function skipToPrev() {
-    // Find the active connection's last-phrase trigger. If we're still in an
-    // early phrase (cursor before that trigger), Math.min keeps the ceiling at
-    // the cursor — otherwise we'd search below a future position and jump forward.
-    // If we're past the trigger, it becomes the ceiling so we skip the current
-    // connection entirely rather than re-landing on its last phrase.
-    const activeTrigger = activeConnectionIndex !== null
-      ? connectionTriggers.find(e => e.connectionIndex === activeConnectionIndex)?.charFlatIndex
-      : undefined;
-    const ceiling = Math.min(activeTrigger ?? charCursorIndex, charCursorIndex);
-    const prev = [...connectionTriggers].reverse().find(e => e.charFlatIndex < ceiling);
-    if (prev) jumpTo(prev.charFlatIndex);
+    // Use first-phrase triggers so multi-phrase connections are findable even
+    // when the cursor is still before their last phrase. Exclude the active
+    // connection so pressing back always moves to a *different* connection.
+    // Pause the animation so the user can see what they jumped to.
+    const prev = [...connectionFirstTriggers].reverse().find(e =>
+      e.charFlatIndex < charCursorIndex &&
+      e.connectionIndex !== activeConnectionIndex
+    );
+    if (!prev) return;
+    paused = true;
+    if (timer) { clearTimeout(timer); timer = null; }
+    jumpTo(prev.charFlatIndex);
   }
 
   function clearAllTimers() {
