@@ -230,13 +230,16 @@
   }
 
   function skipToPrev() {
-    // Use the active connection's own trigger as the ceiling, not the cursor.
-    // If we used the cursor, the animation advancing past the trigger would
-    // cause every press to re-land on the same trigger (stuck in a loop).
-    const activeTriggerFlat = activeConnectionIndex !== null
-      ? (connectionTriggers.find(e => e.connectionIndex === activeConnectionIndex)?.charFlatIndex ?? charCursorIndex)
-      : charCursorIndex;
-    const prev = [...connectionTriggers].reverse().find(e => e.charFlatIndex < activeTriggerFlat);
+    // Find the active connection's last-phrase trigger. If we're still in an
+    // early phrase (cursor before that trigger), Math.min keeps the ceiling at
+    // the cursor — otherwise we'd search below a future position and jump forward.
+    // If we're past the trigger, it becomes the ceiling so we skip the current
+    // connection entirely rather than re-landing on its last phrase.
+    const activeTrigger = activeConnectionIndex !== null
+      ? connectionTriggers.find(e => e.connectionIndex === activeConnectionIndex)?.charFlatIndex
+      : undefined;
+    const ceiling = Math.min(activeTrigger ?? charCursorIndex, charCursorIndex);
+    const prev = [...connectionTriggers].reverse().find(e => e.charFlatIndex < ceiling);
     if (prev) jumpTo(prev.charFlatIndex);
   }
 
