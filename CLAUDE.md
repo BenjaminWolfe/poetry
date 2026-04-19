@@ -38,7 +38,7 @@ npm run check    # Run svelte-check + tsc type checking
 
 - Active development branch: `claude/poetry-highlighting-design-9m9rG`
 - Always push to that branch: `git push -u origin claude/poetry-highlighting-design-9m9rG`
-- Do not push to `main` without an explicit PR.
+- Only push to `main` when explicitly asked to. Prefer fast-forward or rebase merges to keep both branches on the same commit history.
 
 ## Guidelines for Claude
 
