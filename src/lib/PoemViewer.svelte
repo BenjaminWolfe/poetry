@@ -375,11 +375,7 @@
   }
 
   /* Base transition for all text spans — governs both reveal and glow attack */
-  /* clip-path clips text-shadow horizontally to each span's own bounds,
-     preventing glow bleed into adjacent phrases. Vertical -25px allows the
-     glow halo to bloom above/below the text line. */
   span {
-    clip-path: inset(-25px 0);
     transition:
       color 0.5s ease,
       background-color 0.7s ease,
@@ -391,7 +387,13 @@
   }
 
   /* Active connection: glowing */
+  /* clip-path clips text-shadow horizontally to each span's own bounds,
+     preventing glow bleed into adjacent phrases. Vertical -25px allows the
+     glow halo to bloom above/below the text line. Only applied to glow/decay
+     spans — applying to all spans clips wrapped lines (the reference box
+     starts mid-line, so wrapped text starting at x=0 gets cut off). */
   .glow {
+    clip-path: inset(-25px 0);
     border-radius: 3px;
     /* No padding — padding shifts layout as chars join/leave the span */
     background-color: color-mix(in srgb, var(--glow-color) 18%, transparent);
@@ -403,6 +405,7 @@
 
   /* Previous connection: fading back to normal text over a longer duration */
   .glow-decay {
+    clip-path: inset(-25px 0);
     transition:
       color 2.5s ease,
       background-color 2.5s ease,
